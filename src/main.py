@@ -5,12 +5,10 @@ import numpy as np
 import sys
 
 from animate import create_one_frame
+from plays import load_plays_data
 from space import analyze_frames
-from tracking import append_ball_snap_position, decompose_speed_vectors, rotate_field
-
-
-def load_plays(filename):
-    return pd.read_csv(filename)
+from standardize import standardize_all_dataframes
+from tracking import load_all_tracking_data
 
 
 def absolute_score_margin(row):
@@ -33,8 +31,8 @@ def filter_plays(df):
     # We want plays:
     # - During regulation
     df = df[df.quarter <= 4]
-    # - Between the 20 yard lines
-    df = df[(df.absoluteYardlineNumber >= 30) & (df.absoluteYardlineNumber <= 90)]
+    # - Between the 20 yard lines (i.e. within 30 yards of the middle of the field
+    df = df[abs(df.absoluteYardlineNumber - 60) <= 2]
     # - Score differential within 3 possessions (24 points)
     df['absoluteScoreMargin'] = df.apply(lambda row: absolute_score_margin(row), axis=1)
     df = df[df.absoluteScoreMargin <= 24]
@@ -46,6 +44,8 @@ def filter_plays(df):
 
 def get_position_count(lineup, positions):
     counts = {p: 0 for p in positions}
+    if pd.isna(lineup):
+        return [0] * len(positions)
     for val in lineup.split(', '):
         count, position = val.split(maxsplit=1)
         counts[position] = int(count)
@@ -105,7 +105,8 @@ def select_and_merge_data(games_df, plays_df, pff_df, players_df, tracking_df):
     merged_df = merged_df[merged_df.frameId == merged_df.targetFrameId]
     print('Filtered down to %d tracking items' % len(merged_df))
     merged_df = pd.merge(merged_df, players_df, on=['nflId'], how='left')
-    merged_df = pd.merge(merged_df, pff_df, on=['gameId', 'playId', 'nflId'], how='left')
+    if pff_df is not None:
+        merged_df = pd.merge(merged_df, pff_df, on=['gameId', 'playId', 'nflId'], how='left')
     return merged_df
 
 
@@ -116,11 +117,9 @@ def summarize_frame(fq_frame_id, influence):
     print(fq_frame_id, 'Total: %6.2f [%5.3f - %5.3f]' % (sum_i, min_i, max_i))
 
 
-# def create_one_frame(game_id, play_id, frame_id, df, x, y, influence, base_directory, objects=None):
-def iterate_plays(merged_df):
-    group_keys = ['gameId', 'playId', 'frameId']
-    groups = merged_df.groupby(by=group_keys)
-    x, y = np.mgrid[0:53.3:1, 0:120:1]
+def analyze_all_plays(merged_df):
+    groups = merged_df.groupby(by=['gameId', 'playId', 'frameId'])
+    x, y = np.mgrid[0:53.3:0.1, 0:120:0.1]
     locations = np.dstack((x, y))
     fq_frame_id_to_influence = analyze_frames(merged_df, groups.groups, locations)
     print('Produced analysis for %d frames' % len(fq_frame_id_to_influence))
@@ -130,17 +129,15 @@ def iterate_plays(merged_df):
         play_id = fq_frame_id[1]
         frame_id = fq_frame_id[2]
         filename = create_one_frame(game_id, play_id, frame_id, groups.get_group(fq_frame_id), x, y, influence,
-                                    'images/sampled/')
+                                    'images/2023/')
         print(filename)
 
 
-def load_all_tracking_data(files):
-    tracking_df = pd.concat([pd.read_csv(f) for f in files]).reset_index()
-    tracking_df = rotate_field(tracking_df)
-    tracking_df = decompose_speed_vectors(tracking_df)
-    tracking_df = append_ball_snap_position(tracking_df)
-    # print(tracking_df.info())
-    return tracking_df
+def try_read_pff(filename):
+    try:
+        return pd.read_csv(filename)
+    except pd.errors.EmptyDataError:
+        return None
 
 
 def main(argv):
@@ -149,12 +146,14 @@ def main(argv):
               argv[0])
         return 1
     games_df = pd.read_csv(argv[1])
-    plays_df = pd.read_csv(argv[2])
+    plays_df = load_plays_data(argv[2])
     players_df = pd.read_csv(argv[3])
-    pff_df = pd.read_csv(argv[4])
+    pff_df = try_read_pff(argv[4])
     tracking_df = load_all_tracking_data(argv[5:])
+    games_df, plays_df, tracking_df = standardize_all_dataframes(games_df, plays_df, tracking_df, pff_df=pff_df,
+                                                                 players_df=players_df)
     merged_df = select_and_merge_data(games_df, plays_df, pff_df, players_df, tracking_df)
-    iterate_plays(merged_df)
+    analyze_all_plays(merged_df)
     return 0
 
 

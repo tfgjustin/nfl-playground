@@ -1,14 +1,16 @@
 #!/usr/bin/python
 
-import imageio
+import imageio.v2 as imageio
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import numpy as np
 import pandas as pd
 import sys
 
+from plays import load_plays_data
 from space import analyze_frames, contour_levels
-from tracking import append_ball_snap_position, decompose_speed_vectors, is_football, rotate_field
+from standardize import standardize_all_dataframes
+from tracking import is_football, load_all_tracking_data
 
 
 def get_start_frame_id(merged_df):
@@ -29,11 +31,8 @@ def select_and_merge_data(players_df, plays_df, tracking_df, pff_df, game_id, pl
     merged_df = merged_df[merged_df.frameId >= start_frame_id]
     print('Play starts at frame %d' % start_frame_id)
     merged_df = pd.merge(merged_df, players_df, on=['nflId'], how='left')
-    merged_df = pd.merge(merged_df, pff_df, on=['gameId', 'playId', 'nflId'], how='left')
-    # Rotate all the information so all plays go bottom-to-top
-    merged_df = rotate_field(merged_df)
-    merged_df = decompose_speed_vectors(merged_df)
-    merged_df = append_ball_snap_position(merged_df)
+    if pff_df is not None:
+        merged_df = pd.merge(merged_df, pff_df, on=['gameId', 'playId', 'nflId'], how='left')
     return merged_df
 
 
@@ -80,7 +79,7 @@ def generate_field():
 def get_circle_color(row):
     if is_football(row):
         return 'darkgoldenrod'
-    elif row['pff_positionLinedUp'] == 'QB':
+    elif row['playerPosition'] == 'QB':
         return 'red'
     elif row['team'] == row['possessionTeam']:
         return 'indianred'
@@ -88,8 +87,8 @@ def get_circle_color(row):
         return 'skyblue'
 
 
-# The football is small, and everything else is big
 def get_circle_size(row):
+    # The football is small, and everything else is big
     return 50 if is_football(row) else 150
 
 
@@ -205,18 +204,27 @@ def visualize_play(game_id, play_id, merged_df, base_directory):
     create_animated_gif(game_id, play_id, base_directory, frame_files)
 
 
+def try_read_pff(filename):
+    try:
+        return pd.read_csv(filename)
+    except pd.errors.EmptyDataError:
+        return None
+
+
 def main(argv):
     if len(argv) != 9:
-        print('Usage: %s <game_id> <play_id> <games_csv> <players_csv> <plays_csv> <tracking_csv> <pff_csv> <out_dir>' %
+        print('Usage: %s <game_id> <play_id> <games_csv> <plays_csv> <players_csv> <tracking_csv> <pff_csv> <out_dir>' %
               argv[0])
         return 1
     game_id = int(argv[1])
     play_id = int(argv[2])
-    # games_df = pd.read_csv(argv[3])
-    players_df = pd.read_csv(argv[4])
-    plays_df = pd.read_csv(argv[5])
-    tracking_df = pd.read_csv(argv[6])
-    pff_df = pd.read_csv(argv[7])
+    games_df = pd.read_csv(argv[3])
+    plays_df = load_plays_data(argv[4])
+    players_df = pd.read_csv(argv[5])
+    tracking_df = load_all_tracking_data([argv[6]])
+    pff_df = try_read_pff(argv[7])
+    games_df, plays_df, tracking_df = standardize_all_dataframes(games_df, plays_df, tracking_df, pff_df=pff_df,
+                                                                 players_df=players_df)
     merged_df = select_and_merge_data(players_df, plays_df, tracking_df, pff_df, game_id, play_id)
     print('Found %d points for (%d, %d)' % (len(merged_df), game_id, play_id))
     visualize_play(game_id, play_id, merged_df, argv[8])
