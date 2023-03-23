@@ -93,7 +93,8 @@ def get_post_snap_frames(merged_df):
     ball_snap_frames = merged_df[(merged_df.team == 'football') & (merged_df.event == 'ball_snap')]
     # Make sure we make a copy of the input DataFrame so we don't accidentally update the original frame counts.
     ball_snap_frames = ball_snap_frames[['gameId', 'playId', 'frameId']].copy()
-    ball_snap_frames['targetFrameId'] = ball_snap_frames['frameId'] + 10
+    # Target 0.8s after the ball is snapped.
+    ball_snap_frames['targetFrameId'] = ball_snap_frames['frameId'] + 8
     return ball_snap_frames.drop(columns='frameId')
 
 
