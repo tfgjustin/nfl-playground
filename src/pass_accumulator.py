@@ -16,7 +16,6 @@ class TeamPassHistoryRepository(object):
     Keeps track of attempts, completions, and other outcomes (e.g., sacks, interceptions), on both game-level and within
     a certain lookback number of plays on offense.
     """
-
     def __init__(self, lookback_length=15, distance_buckets=None):
         """
         Constructor. Can optionally specify the size of the "lookback" window for what is considered "recent".
@@ -27,6 +26,9 @@ class TeamPassHistoryRepository(object):
         between 0 and 4 yards in length.
         """
         self._distance_buckets = _DEFAULT_DISTANCE_BUCKETS if distance_buckets is None else distance_buckets
+        # Make sure the final bucket is always 99, since that's the longest possible pass distance
+        if self._distance_buckets[-1] < 99:
+            self._distance_buckets.append(99)
         # Recent attempts and completions
         self._recent_pass_attempt_by_distance = {d: deque(list(), lookback_length) for d in self._distance_buckets}
         self._recent_pass_complete_by_distance = {d: deque(list(), lookback_length) for d in self._distance_buckets}
@@ -140,7 +142,23 @@ class TeamPassHistoryRepository(object):
 
 
 class PassAccumulator(object):
+    """
+    A repository for the history all passing attempts in all games.
+
+    Keeps track of attempts, completions, and other outcomes (e.g., sacks, interceptions), on both game-level and within
+    a certain lookback number of plays on offense.
+    """
     def __init__(self, games_df, plays_df, lookback_length=15, distance_buckets=None):
+        """
+        Constructor. Can optionally specify the size of the "lookback" window for what is considered "recent".
+
+        :param games_df DataFrame with one row per game
+        :param plays_df DataFrame with one play per game
+        :param lookback_length: Number of plays on offense to consider "recent".
+        :param distance_buckets: Number of yards downfield as a boundary to bucket attempts. E.g., a value of '0' will
+        create a bucket for all plays behind the line of scrimmage, and another bucket of '5' will contain all passes
+        between 0 and 4 yards in length.
+        """
         self._games_df = games_df
         self._plays_df = plays_df
         self._lookback_length = lookback_length
@@ -148,21 +166,32 @@ class PassAccumulator(object):
         self._current_game_id = None
         self._team_history = None
         self._team_abbr_by_game = self.create_abbreviation_mapping()
-        self._df_columns = self.create_columns()
+        self._df_columns = self.create_df_column_names()
         self._output_data = list()
 
-    def create_columns(self):
-        all_attempt_columns = ['allPassAttLe%02dYds' % y for y in self._distance_buckets]
-        all_complete_columns = ['allPassCompLe%02dYds' % y for y in self._distance_buckets]
+    def create_df_column_names(self):
+        """
+        Create all the column names needed by the analysis DataFrame.
+
+        :return: Python list with ordered set of DataFrame column names
+        """
+        sorted_buckets = sorted(self._distance_buckets)
+        all_attempt_columns = ['allPassAttLe%02dYds' % y for y in sorted_buckets]
+        all_complete_columns = ['allPassCompLe%02dYds' % y for y in sorted_buckets]
         all_other_columns = ['allPass%s' % s for s in sorted(_PASS_STATUS_TO_NAME.keys())]
         all_columns = all_attempt_columns + all_complete_columns + all_other_columns
-        recent_attempt_columns = ['recentPassAttLe%02dYds' % y for y in self._distance_buckets]
-        recent_complete_columns = ['recentPassCompLe%02dYds' % y for y in self._distance_buckets]
+        recent_attempt_columns = ['recentPassAttLe%02dYds' % y for y in sorted_buckets]
+        recent_complete_columns = ['recentPassCompLe%02dYds' % y for y in sorted_buckets]
         recent_other_columns = ['recentPass%s' % s for s in sorted(_PASS_STATUS_TO_NAME.keys())]
         recent_columns = recent_attempt_columns + recent_complete_columns + recent_other_columns
         return ['gameId', 'playId', 'totalPlays'] + all_columns + recent_columns
 
     def create_abbreviation_mapping(self):
+        """
+        Create a dictionary that maps gameId to home/away to their abbreviation for each game
+
+        :return:  dictionary that maps gameId to home/away to their abbreviation
+        """
         abbr_dict = defaultdict(dict)
         for _, row in self._games_df.iterrows():
             abbr_dict[row['gameId']]['homeTeam'] = row['homeTeamAbbr']
@@ -170,28 +199,47 @@ class PassAccumulator(object):
         return abbr_dict
 
     def annotate(self):
+        """
+        Perform the play-by-play annotation and running tallies
+
+        :return: None
+        """
         # TODO: Make sure we sort by gameId and then playId
         for _, row in self._plays_df.iterrows():
-            # print(row)
             self.parse_one_play(row)
 
     def df(self):
+        """
+        Returns the DataFrame from all plays handed to the annotator.
+
+        :return: DataFrame with running tallies for each play handed to the annotator.
+        """
         return pd.DataFrame(self._output_data, columns=self._df_columns)
 
     def parse_one_play(self, row):
+        """
+        Parse a single row in the plays DataFrame, and update the various run/pass counters.
+
+        :param row: one row from the plays DataFrame
+        :return: None
+        """
         self.maybe_init_new_game(row)
         if is_special_teams_play(row):
             return
         poss_team = row['possessionTeam']
         assert poss_team in self._team_history
-        pass_info = self.pass_status_and_distance_bucket(row)
-        # print(poss_team, pass_info)
-        self._team_history[poss_team].add_play(pass_info)
+        self._team_history[poss_team].add_play(self.pass_status_and_distance_bucket(row))
         # Give it time to warm up so the lookback length is meaningful.
         if self._team_history[poss_team].total_plays() >= self._lookback_length:
             self._output_data.append(self._team_history[poss_team].generate_df_row(row['gameId'], row['playId']))
 
     def maybe_init_new_game(self, row):
+        """
+        Possibly update the internal state if this row represents the start of a new game.
+
+        :param row: one row from the plays DataFrame
+        :return: None
+        """
         game_id = row['gameId']
         if self._current_game_id is not None and self._current_game_id == game_id:
             return
@@ -206,6 +254,12 @@ class PassAccumulator(object):
                                                                        distance_buckets=self._distance_buckets)
 
     def pass_status_and_distance_bucket(self, row):
+        """
+        Extract the pass status and the distance bucket from a given play
+
+        :param row: one row from the plays DataFrame
+        :return: A length-2 array of (pass_status, distance_bucket) for a pass play, and None otherwise
+        """
         complete_status = row['passResult'] if 'passResult' in row else np.nan
         if pd.isna(complete_status):
             # Not a pass.
