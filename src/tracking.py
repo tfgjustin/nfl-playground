@@ -23,10 +23,10 @@ def maybe_rename_football(tracking_df):
     :param tracking_df: DataFrame with full tracking data
     :return: DataFrame with a standardized name for the football
     """
-    ball_rows = tracking_df[tracking_df.team == 'ball']
-    if ball_rows.empty:
+    ball_rows_idx = tracking_df[tracking_df.team == 'ball'].index
+    if ball_rows_idx.empty:
         return tracking_df
-    tracking_df.loc[tracking_df.team == 'ball', 'team'] = 'football'
+    tracking_df.loc[ball_rows_idx, 'team'] = 'football'
     return tracking_df
 
 
@@ -48,9 +48,10 @@ def replace_event_none_strings_with_none(tracking_df):
     :param tracking_df: DataFrame with player and ball tracking data.
     :return: DataFrame where the events have None values instead of 'None' strings
     """
-    tracking_df['event'] = tracking_df.apply(
-        lambda row: None if row['event'] is not None and row['event'] == 'None' else row['event'],
-        axis=1)
+    idx = tracking_df[tracking_df.event == 'None'].index
+    if idx.empty:
+        return tracking_df
+    tracking_df.loc[idx, 'event'] = None
     return tracking_df
 
 

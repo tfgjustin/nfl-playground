@@ -3,26 +3,6 @@ import numpy as np
 import pandas as pd
 
 
-def insert_defensive_team_abbreviation(row):
-    if row['possessionTeam'] == row['homeTeamAbbr']:
-        return row['visitorTeamAbbr']
-    else:
-        return row['homeTeamAbbr']
-
-
-def maybe_add_defensive_team_abbreviations(games_df, plays_df):
-    if 'defensiveTeam' in plays_df:
-        return plays_df
-    # First, figure out the abbreviations of the home and visitor teams
-    game_teams_df = games_df[['gameId', 'homeTeamAbbr', 'visitorTeamAbbr']]
-    play_teams_df = plays_df[['gameId', 'playId', 'possessionTeam']]
-    merged_df = pd.merge(play_teams_df, game_teams_df, on=['gameId'], how='left')
-    merged_df['defensiveTeam'] = merged_df.apply(insert_defensive_team_abbreviation, axis=1)
-    merged_df.drop(columns=['homeTeamAbbr', 'visitorTeamAbbr', 'possessionTeam'], inplace=True)
-    plays_df = pd.merge(plays_df, merged_df, on=['gameId', 'playId'], how='left')
-    return plays_df
-
-
 def join_position_data_pff(pff_df, tracking_df):
     role_df = pff_df[['gameId', 'playId', 'nflId', 'pff_positionLinedUp']]
     role_df = role_df.rename(columns={'pff_positionLinedUp': 'playerPosition'}, errors='ignore')
@@ -115,7 +95,9 @@ def maybe_insert_play_direction(games_df, plays_df, tracking_df):
     # Swap out 'home' and 'away' as teams, and replace them with the actual team abbreviations.
     # Get the tracking data per-play
     tracking_df = pd.merge(tracking_df, game_teams_df, on=['gameId'], how='left')
-    tracking_df['teamAbbr'] = tracking_df.apply(swap_in_team_abbreviations, axis=1)
+    # TODO: Speed this up. It's slow.
+    tracking_df['teamAbbr'] = tracking_df[['team', 'homeTeamAbbr', 'visitorTeamAbbr']].apply(swap_in_team_abbreviations,
+                                                                                             axis=1)
     tracking_df.drop(columns=['team', 'homeTeamAbbr', 'visitorTeamAbbr'], inplace=True)
     tracking_df = tracking_df.rename(columns={'teamAbbr': 'team'}, errors='ignore')
     return tracking_df
@@ -217,9 +199,15 @@ def annotate_tracking_data(tracking_df):
     return tracking_df
 
 
-def standardize_all_dataframes(games_df, plays_df, tracking_df, pff_df=None, players_df=None):
-    plays_df = maybe_add_defensive_team_abbreviations(games_df, plays_df)
+def standardize_tracking_dataframes(games_df, plays_df, tracking_df, pff_df=None, players_df=None):
     tracking_df = join_position_data(players_df, pff_df, tracking_df)
     tracking_df = maybe_insert_play_direction(games_df, plays_df, tracking_df)
     tracking_df = annotate_tracking_data(tracking_df)
-    return games_df, plays_df, tracking_df
+    return tracking_df
+
+
+def try_read_pff(filename):
+    try:
+        return pd.read_csv(filename)
+    except pd.errors.EmptyDataError:
+        return None

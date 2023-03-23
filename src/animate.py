@@ -9,7 +9,7 @@ import sys
 
 from plays import load_plays_data
 from space import analyze_frames, contour_levels
-from standardize import standardize_all_dataframes
+from standardize import standardize_tracking_dataframes, try_read_pff
 from tracking import is_football, load_all_tracking_data
 
 
@@ -204,13 +204,6 @@ def visualize_play(game_id, play_id, merged_df, base_directory):
     create_animated_gif(game_id, play_id, base_directory, frame_files)
 
 
-def try_read_pff(filename):
-    try:
-        return pd.read_csv(filename)
-    except pd.errors.EmptyDataError:
-        return None
-
-
 def main(argv):
     if len(argv) != 9:
         print('Usage: %s <game_id> <play_id> <games_csv> <plays_csv> <players_csv> <tracking_csv> <pff_csv> <out_dir>' %
@@ -219,12 +212,11 @@ def main(argv):
     game_id = int(argv[1])
     play_id = int(argv[2])
     games_df = pd.read_csv(argv[3])
-    plays_df = load_plays_data(argv[4])
+    plays_df = load_plays_data(games_df, argv[4])
     players_df = pd.read_csv(argv[5])
     tracking_df = load_all_tracking_data([argv[6]])
     pff_df = try_read_pff(argv[7])
-    games_df, plays_df, tracking_df = standardize_all_dataframes(games_df, plays_df, tracking_df, pff_df=pff_df,
-                                                                 players_df=players_df)
+    tracking_df = standardize_tracking_dataframes(games_df, plays_df, tracking_df, pff_df=pff_df, players_df=players_df)
     merged_df = select_and_merge_data(players_df, plays_df, tracking_df, pff_df, game_id, play_id)
     print('Found %d points for (%d, %d)' % (len(merged_df), game_id, play_id))
     visualize_play(game_id, play_id, merged_df, argv[8])
