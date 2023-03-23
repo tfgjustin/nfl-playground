@@ -10,6 +10,14 @@ from tracking import is_football
 _MAX_SPEED = 9
 
 
+def create_uniform_mask(locations):
+    mask_shape = locations.shape[:2]
+    uniform_mask = np.ndarray(mask_shape, dtype=np.float)
+    mask_value = 1. / uniform_mask.size
+    uniform_mask.fill(mask_value)
+    return uniform_mask
+
+
 def distance_from_point(x, y, target_x, target_y):
     return math.sqrt(((x - target_x) ** 2) + ((y - target_y) ** 2)) ** 0.5
 
@@ -29,7 +37,7 @@ def control_radius(target_distance):
 def rotation_matrix(player_frame_row):
     # Since we've normalized that people are moving north-south instead of east-west, we're going to expand the Y-axis
     # and contract on the X-axis
-    return np.array([[ player_frame_row['yDirectionFactor'], player_frame_row['xDirectionFactor']],
+    return np.array([[player_frame_row['yDirectionFactor'], player_frame_row['xDirectionFactor']],
                      [-player_frame_row['xDirectionFactor'], player_frame_row['yDirectionFactor']]
                      ]
                     )
@@ -86,19 +94,32 @@ def calculate_player_influence_map(frame_df, locations, influence):
         if is_football(row):
             continue
         influence_multiplier = -1 if row['team'] == row['defensiveTeam'] else 1
-        mu = influence_center(row)
-        covariance = covariance_matrix(row)
         player_influence = np.zeros(locations.shape[:2])
+        mu = influence_center(row)
+        if np.isnan(np.sum(mu)):
+            print('Influence center has NaN:', mu, "; returning zeros")
+            print('Row:', row)
+            return player_influence
+        covariance = covariance_matrix(row)
+        if np.isnan(np.sum(covariance)):
+            print('Covariance has NaN:', covariance, "; returning zeros")
+            print('Row:', row)
+            return player_influence
         try:
             player_influence = multivariate_normal(mu, covariance).pdf(locations)
         except np.linalg.LinAlgError:
             print('Covariance matrix for player influence is singular; returning zeros')
-            print(covariance)
+            print('Cov:', covariance)
             print('Row:', row)
+        if np.isnan(np.sum(player_influence)):
+            print('NaN in player influence map; returning zeros')
+            print('== Mu:', mu, ' Cov:', covariance)
+            print('Row:', row)
+            player_influence = np.zeros(locations.shape[:2])
         influence += (player_influence * influence_multiplier)
 
 
-def should_mask_influence_by_snap(frame_df):
+def should_mask_influence_by_snap(_):
     return True
 
 
@@ -106,43 +127,29 @@ def mask_influence_uniform(influence, uniform_mask):
     return uniform_mask * influence
 
 
-def mask_influence_by_snap(frame_df, locations, influence):
+def mask_influence_by_snap(fq_frame_id, frame_df, locations, influence):
     ball_snap_x = frame_df['ballStartX'].iloc[0].astype(float)
     ball_snap_y = frame_df['ballStartY'].iloc[0].astype(float)
     if np.isnan(ball_snap_x) or np.isnan(ball_snap_y):
-        print('NaN for ball snap in frame')
+        print('NaN for ball snap in frame', fq_frame_id)
         return influence
-    focus = multivariate_normal([ball_snap_x, ball_snap_y + 1], [[5, 0], [0, 3]]).pdf(locations)
+    focus = multivariate_normal([ball_snap_x, ball_snap_y], [[4, 0], [0, 2]]).pdf(locations)
     return focus * influence
 
 
-def mask_influence(frame_df, locations, influence, uniform_mask):
+def mask_influence(fq_frame_id, frame_df, locations, influence, uniform_mask):
     if should_mask_influence_by_snap(frame_df):
-        return mask_influence_by_snap(frame_df, locations, influence)
+        return mask_influence_by_snap(fq_frame_id, frame_df, locations, influence)
     else:
         return mask_influence_uniform(influence, uniform_mask)
 
 
 def values_at_frame(fq_frame_id, frame_df, locations, uniform_mask):
-    print('\n=== Frame')
-    print(fq_frame_id)
-    # pd.set_option('display.max_rows', None)
-    # print(frame_df[['gameId', 'playId', 'frameId', 'team', 'playerPosition', 'normX', 'normY']].info())
-    # print(frame_df[['gameId', 'playId', 'frameId', 'team', 'playerPosition', 'normX', 'normY']].head(100))
-    # pd.set_option('display.max_rows', 10)
     append_target_distance(frame_df)
     influence = np.zeros(locations.shape[:2])
     calculate_player_influence_map(frame_df, locations, influence)
-    influence = mask_influence(frame_df, locations, influence, uniform_mask)
+    influence = mask_influence(fq_frame_id, frame_df, locations, influence, uniform_mask)
     return (expit(influence) - 0.5) / 0.01
-
-
-def create_uniform_mask(locations):
-    mask_shape = locations.shape[:2]
-    uniform_mask = np.ndarray(mask_shape, dtype=np.float)
-    mask_value = 1. / uniform_mask.size
-    uniform_mask.fill(mask_value)
-    return uniform_mask
 
 
 def analyze_frames(df, fq_frame_ids, locations):
