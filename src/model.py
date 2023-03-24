@@ -33,7 +33,20 @@ def plot_xgboost(model):
 
 def xgboost_model(x_df, y_df, validation_df):
     X_train, X_test, y_train, y_test = train_test_split(x_df, y_df, test_size=0.2, random_state=47)
-    model = xgb.XGBRegressor(eval_metric='rmse')
+    # We choose our parameters to avoid overfitting the data. Namely:
+    # - Don't make trees too deep, since the number of features we have is relatively small;
+    # - Throttle back the learning rate to avoid overfitting;
+    # - Only use a sample of the data each time; and
+    # - Add an L2 regularization term to avoid selecting too many features.
+    model = xgb.XGBRegressor(eval_metric='rmse',
+                             booster='dart',
+                             max_depth=4,
+                             eta=0.025,
+                             n_estimators=100,
+                             subsample=0.6,
+                             reg_lambda=2,
+                             verbosity=1,
+                             )
     eval_set = [(X_train, y_train), (X_test, y_test)]
     model.fit(X_train, y_train, eval_set=eval_set, verbose=False)
     # make predictions for test data
@@ -80,14 +93,10 @@ def make_keras_model(X_train):
         layers.Dense(input_shape=(X_train.shape[1:]), use_bias=True, units=X_train.shape[1], activation='sigmoid')
     )
     model.add(layers.Dropout(0.3))
-    model.add(layers.Dense(units=64, activation='sigmoid'))
-    model.add(layers.Dropout(0.3))
-    model.add(layers.Dense(units=48, activation='sigmoid'))
+    model.add(layers.Dense(units=192, activation='sigmoid'))
     model.add(layers.Dropout(0.3))
     model.add(layers.Dense(units=32, activation='sigmoid'))
     model.add(layers.Dropout(0.3))
-    model.add(layers.Dense(units=16, activation='sigmoid'))
-    model.add(layers.Dropout(0.25))
     model.add(layers.Dense(units=1))
     optimizer = keras.optimizers.Adam(learning_rate=1e-3)
     model.compile(optimizer=optimizer, loss='mse', metrics=['mae', 'mse'])
