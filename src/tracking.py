@@ -65,59 +65,28 @@ def filter_football(tracking_df):
     return tracking_df[tracking_df.team != 'football']
 
 
-def group_and_sort_events_by_frames(player_tracking_df):
+def create_unique_event_frame_index(player_tracking_df):
     """
-    Group events from player-only (i.e., no football) tracking data keyed by (game, play, frame, event) and count rows.
-
-    :param player_tracking_df: DataFrame with football-based rows removed
-    :return: DataFrameGroupBy sorted by (game, play, frame, event)
-    """
-    player_tracking_df = player_tracking_df[player_tracking_df.event != 'None']
-    groupby_df = player_tracking_df[['gameId', 'playId', 'frameId', 'event', 'nflId']].groupby(
-            ['gameId', 'playId', 'frameId', 'event']
-            ).count().reset_index()
-    return groupby_df.sort_values(by=['gameId', 'playId', 'frameId', 'event'], ascending=[True, True, True, True])
-
-
-def find_best_event_frames(events_df):
-    """
-    Find the 'best' event frame for a given (game, play, event) tuple.
+    Given player-only tracking data, finds the best frame within a play for a given event.
 
     The 'best' frame for a (game, play, event) key is the one which has the most players associated with it, and
     happened earliest in the play. This is purely a heuristic which may be broken, but it does deal with cases where
     an event is smeared across multiple players. E.g., the ball_snap event is associated with 17 players on frame 4, and
     the other 5 players on frame 5. This will return frame 4.
 
-    :param events_df: DataFrameGroupBy returned from group_and_sort_events_by_frames
-    :return: DataFrame sorted by game, play, and frameId, with the associated event
-    """
-    event_frames_df = pd.DataFrame({
-        'gameId': pd.Series(dtype='int64'),
-        'playId': pd.Series(dtype='int64'),
-        'frameId': pd.Series(dtype='int64'),
-        'event': pd.Series(dtype='str')})
-    for name, group in events_df.groupby(['gameId', 'playId', 'event']):
-        if len(group) == 1:
-            event_frames_df = event_frames_df.append(group[['gameId', 'playId', 'frameId', 'event']],
-                                                     ignore_index=True)
-        else:
-            best_row = group.sort_values(by=['nflId', 'frameId'], ascending=[False, True])
-            event_frames_df = event_frames_df.append(best_row.iloc[0][['gameId', 'playId', 'frameId', 'event']],
-                                                     ignore_index=True)
-    return event_frames_df.sort_values(
-        by=['gameId', 'playId', 'frameId'], ascending=[True, True, True]
-    )
-
-
-def create_unique_event_frame_index(player_tracking_df):
-    """
-    Given player-only tracking data, finds the best frame within a play for a given event.
-
     :param player_tracking_df: DataFrame with player-only tracking data
     :return: DataFrame sorted by game, play, and frameId, with the associated event
     """
-    events_df = group_and_sort_events_by_frames(player_tracking_df)
-    return find_best_event_frames(events_df)
+    player_tracking_df = player_tracking_df[player_tracking_df.event != 'None']
+    groupby_df = player_tracking_df[['gameId', 'playId', 'frameId', 'event', 'nflId']].groupby(
+            ['gameId', 'playId', 'frameId', 'event']
+            ).count().reset_index()
+    # Filter out any events which only happened to one or two players (these may be noise).
+    groupby_df = groupby_df[groupby_df.nflId > 2]
+    events_df = groupby_df.sort_values(by=['gameId', 'playId', 'nflId', 'frameId', 'event'],
+                                       ascending=[True, True, False, True, True])
+    events_df.drop_duplicates(subset=['gameId', 'playId', 'event'], inplace=True)
+    return events_df[['gameId', 'playId', 'frameId', 'event']]
 
 
 def create_tracking_with_unique_play_events(tracking_df):
