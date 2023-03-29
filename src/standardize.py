@@ -52,15 +52,20 @@ def infer_play_direction(row):
             return 'right'
 
 
-def swap_in_team_abbreviations(row):
-    if row['team'] == 'football':
-        return 'football'
-    elif row['team'] == 'home':
-        return row['homeTeamAbbr']
-    elif row['team'] == 'away':
-        return row['visitorTeamAbbr']
-    else:
-        return None
+def add_team_abbreviations(tracking_df):
+    # Set a default of None
+    tracking_df['teamAbbr'] = None
+    # The football is itself
+    football_team_idx = tracking_df[tracking_df.team == 'football'].index
+    tracking_df.loc[football_team_idx, 'teamAbbr'] = tracking_df['team']
+    # The home team gets the home team abbreviation
+    home_team_idx = tracking_df[tracking_df.team == 'home'].index
+    tracking_df.loc[home_team_idx, 'teamAbbr'] = tracking_df['homeTeamAbbr']
+    # The away team gets the (visitor) away team abbreviation
+    away_team_idx = tracking_df[tracking_df.team == 'away'].index
+    tracking_df.loc[away_team_idx, 'teamAbbr'] = tracking_df['visitorTeamAbbr']
+    tracking_df.drop(columns=['team'], inplace=True)
+    return tracking_df.rename(columns={'teamAbbr': 'team'}, errors='ignore')
 
 
 def maybe_insert_play_direction(games_df, plays_df, tracking_df):
@@ -95,11 +100,7 @@ def maybe_insert_play_direction(games_df, plays_df, tracking_df):
     # Swap out 'home' and 'away' as teams, and replace them with the actual team abbreviations.
     # Get the tracking data per-play
     tracking_df = pd.merge(tracking_df, game_teams_df, on=['gameId'], how='left')
-    # TODO: Speed this up. It's slow.
-    tracking_df['teamAbbr'] = tracking_df[['team', 'homeTeamAbbr', 'visitorTeamAbbr']].apply(swap_in_team_abbreviations,
-                                                                                             axis=1)
-    tracking_df.drop(columns=['team', 'homeTeamAbbr', 'visitorTeamAbbr'], inplace=True)
-    tracking_df = tracking_df.rename(columns={'teamAbbr': 'team'}, errors='ignore')
+    tracking_df = add_team_abbreviations(tracking_df)
     return tracking_df
 
 
