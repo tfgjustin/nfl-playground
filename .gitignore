@@ -24,6 +24,9 @@ scratch/
 # Data files (likely NFL Big Data Bowl stuff which has to stay confidential)
 data/
 
+# Model directories
+*.model/
+
 # Swap/backups
 [._]*.s[a-v][a-z]
 [._]*.sw[a-p]
