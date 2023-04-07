@@ -1,6 +1,8 @@
 import numpy as np
 import pandas as pd
 
+from standardize import normalize_column_formatting
+
 
 def is_special_teams_play(row):
     return row['isSTPlay']
@@ -80,6 +82,15 @@ def maybe_add_defensive_team_abbreviations(games_df, plays_df):
     return plays_df
 
 
+def normalize_plays_data(games_df, plays_df):
+    plays_df = maybe_insert_yards_after_catch(plays_df)
+    plays_df = maybe_insert_absolute_yardline_number(plays_df)
+    plays_df = normalize_game_clock(plays_df)
+    plays_df = maybe_add_defensive_team_abbreviations(games_df, plays_df)
+    plays_df.sort_values(by=['gameId', 'playId', 'gameClock'], ascending=[True, True, False], inplace=True)
+    return plays_df.sort_index(axis=0)
+
+
 def load_plays_data(games_df, plays_csv):
     """
     Load all the play-by-play data and ensure everything is standardized/looks the same.
@@ -89,18 +100,11 @@ def load_plays_data(games_df, plays_csv):
     :return: one DataFrame with standardized play-by-play data, sorted by column names and plays.
     """
     plays_df = pd.read_csv(plays_csv)
+    plays_df = normalize_column_formatting(plays_df)
     plays_df = plays_df.rename(columns={
-        'GameClock': 'gameClock',
-        'PassResult': 'passResult',
         'personnel.defense': 'personnelD',
         'personnel.offense': 'personnelO',
-        'HomeScoreBeforePlay': 'preSnapHomeScore',
-        'VisitorScoreBeforePlay': 'preSnapVisitorScore',
-        'YardsAfterCatch': 'yardsAfterCatch'
+        'homeScoreBeforePlay': 'preSnapHomeScore',
+        'visitorScoreBeforePlay': 'preSnapVisitorScore',
     }, errors='ignore')
-    plays_df = maybe_insert_yards_after_catch(plays_df)
-    plays_df = maybe_insert_absolute_yardline_number(plays_df)
-    plays_df = normalize_game_clock(plays_df)
-    plays_df = maybe_add_defensive_team_abbreviations(games_df, plays_df)
-    plays_df.sort_values(by=['gameId', 'playId', 'gameClock'], ascending=[True, True, False], inplace=True)
-    return plays_df.sort_index(axis=0)
+    return normalize_plays_data(games_df, plays_df)
