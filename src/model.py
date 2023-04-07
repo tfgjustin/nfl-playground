@@ -9,9 +9,11 @@ import tensorflow as tf
 import xgboost as xgb
 
 from matplotlib import pyplot
+from plays import load_plays_data
 from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelBinarizer
+from standardize import normalize_column_formatting
 from tensorflow.keras import layers
 from tensorflow import keras
 from time import time
@@ -144,17 +146,18 @@ def include_possession_team_abbr(plays_df, encoder, df):
 
 def main(argv):
     tf.get_logger().setLevel(logging.WARNING)
-    if len(argv) != 4:
-        print('Usage: %s <plays_csv> <input_csv> <validation>' % argv[0])
+    if len(argv) != 5:
+        print('Usage: %s <games_csv> <plays_csv> <input_csv> <validation>' % argv[0])
         return 1
-    plays_df = pd.read_csv(argv[1])
+    games_df = normalize_column_formatting(pd.read_csv(argv[1]))
+    plays_df = load_plays_data(games_df, argv[2])
     encoder = create_onehot_encoder(plays_df)
-    x_df = pd.read_csv(argv[2])
+    x_df = pd.read_csv(argv[3])
     x_df = include_possession_team_abbr(plays_df, encoder, x_df)
     x_df['yardsToGoSqrt'] = x_df['yardsToGo'].apply(math.sqrt)
     y_df = x_df['space']
     x_df.drop(columns=['gameId', 'playId', 'space'], inplace=True)
-    validation_df = pd.read_csv(argv[3])
+    validation_df = pd.read_csv(argv[4])
     validation_df = include_possession_team_abbr(plays_df, encoder, validation_df)
     validation_df['yardsToGoSqrt'] = validation_df['yardsToGo'].apply(math.sqrt)
     validation_df.drop(columns=['gameId', 'playId'], inplace=True)
