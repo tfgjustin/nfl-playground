@@ -9,7 +9,7 @@ import sys
 
 from plays import load_plays_data
 from space import analyze_frames, contour_levels
-from standardize import standardize_tracking_dataframes, try_read_pff
+from standardize import normalize_column_formatting, standardize_tracking_dataframes, try_read_pff
 from tracking import is_football, load_all_tracking_data
 
 
@@ -211,9 +211,9 @@ def main(argv):
         return 1
     game_id = int(argv[1])
     play_id = int(argv[2])
-    games_df = pd.read_csv(argv[3])
+    games_df = normalize_column_formatting(pd.read_csv(argv[3]))
     plays_df = load_plays_data(games_df, argv[4])
-    players_df = pd.read_csv(argv[5])
+    players_df = normalize_column_formatting(pd.read_csv(argv[5]))
     tracking_df = load_all_tracking_data([argv[6]])
     pff_df = try_read_pff(argv[7])
     tracking_df = standardize_tracking_dataframes(games_df, plays_df, tracking_df, pff_df=pff_df, players_df=players_df)

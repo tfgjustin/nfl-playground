@@ -7,7 +7,7 @@ import sys
 from pass_accumulator import PassAccumulator
 from plays import load_plays_data
 from space import analyze_frames
-from standardize import standardize_tracking_dataframes, try_read_pff
+from standardize import normalize_column_formatting, standardize_tracking_dataframes, try_read_pff
 from time import localtime, strftime, time
 from tracking import load_all_tracking_data
 
@@ -129,7 +129,7 @@ def annotate_game_plays_with_tracking(game_plays_df, pff_df, players_df, trackin
     return merged_df
 
 
-def summarize_frame(fq_frame_id, influence):
+def summarize_frame(_, influence):
     min_i = np.min(influence)
     max_i = np.max(influence)
     sum_i = float(np.sum(influence, axis=None))
@@ -181,7 +181,7 @@ def filetime_to_path(filetime):
     filetime_ns = filetime - int(filetime)
     time_struct = localtime(filetime)
     time_fmt = strftime('%Y%m%dT%H%M%S', time_struct)
-    return 'data/2019/df/input_df.%s.%d.csv' % (time_fmt, 1000000 * filetime_ns)
+    return 'input_df.%s.%d.csv' % (time_fmt, 1000000 * filetime_ns)
 
 
 def create_model_input(analysis_df, filetime):
@@ -193,9 +193,9 @@ def main(argv):
         print('Usage: %s <games_csv> <plays_csv> <players_csv> <pff_csv> <tracking_csv>' %
               argv[0])
         return 1
-    games_df = pd.read_csv(argv[1])
+    games_df = normalize_column_formatting(pd.read_csv(argv[1]))
     plays_df = load_plays_data(games_df, argv[2])
-    players_df = pd.read_csv(argv[3])
+    players_df = normalize_column_formatting(pd.read_csv(argv[3]))
     pff_df = try_read_pff(argv[4])
     pass_data_df = get_pass_accumulator_df(games_df, plays_df)
     game_plays_df = select_and_decompose_plays(games_df, plays_df)

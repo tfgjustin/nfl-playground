@@ -267,7 +267,7 @@ class PassAccumulator(object):
         if complete_status in _PASS_STATUS_TO_NAME:
             # They got sacked, it turned into a run play, or was intercepted.
             return [complete_status, None]
-        actual_distance = row['PassLength']
+        actual_distance = row['passLength']
         if pd.isna(actual_distance):
             # Some other odd outcome
             return None
