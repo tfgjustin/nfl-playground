@@ -1,6 +1,18 @@
 import math
 import numpy as np
 import pandas as pd
+import sys
+
+
+def lower_case_first(name):
+    return name[0].lower() + name[1:]
+
+
+def normalize_column_formatting(df, inplace=False):
+    if df is None:
+        return None
+    updated_columns = {c: lower_case_first(c) for c in df.columns}
+    return df.rename(columns=updated_columns, inplace=inplace)
 
 
 def join_position_data_pff(pff_df, tracking_df):
@@ -10,8 +22,8 @@ def join_position_data_pff(pff_df, tracking_df):
 
 
 def join_position_data_players(players_df, tracking_df):
-    role_df = players_df[['nflId', 'PositionAbbr']]
-    role_df = role_df.rename(columns={'PositionAbbr': 'playerPosition'}, errors='ignore')
+    role_df = players_df[['nflId', 'positionAbbr']]
+    role_df = role_df.rename(columns={'positionAbbr': 'playerPosition'}, errors='ignore')
     return pd.merge(tracking_df, role_df, on=['nflId'], how='left')
 
 
@@ -32,9 +44,9 @@ def get_team_on_right(row):
 
 
 def is_reversed_special_teams_direction(row):
-    if row['SpecialTeamsPlayType'] is None:
+    if row['specialTeamsPlayType'] is None:
         return False
-    return row['SpecialTeamsPlayType'] in ('Kickoff', 'Punt')
+    return row['specialTeamsPlayType'] in ('Kickoff', 'Punt')
 
 
 def infer_play_direction(row):
@@ -114,7 +126,8 @@ def _rotate_direction_offset(play_direction):
 
 
 def rotate_field(tracking_df):
-    # NOTE: This function REQUIRES the playDirection column, which is inserted using the games_df and plays_df data.
+    # If someone's direction isna, then we should zero out their facing and speed
+    tracking_df.loc[tracking_df.dir.isna(), ['s', 'dir']] = 0, 0
     # Do a naive swap. This has the effect of doing a diagonal mirroring of the field.
     tracking_df['normX'] = tracking_df['y']
     tracking_df['normY'] = tracking_df['x']
@@ -194,6 +207,7 @@ def append_ball_start_position(tracking_df):
 
 
 def annotate_tracking_data(tracking_df):
+    tracking_df['s'] = tracking_df['dis'] * 10
     tracking_df = rotate_field(tracking_df)
     tracking_df = decompose_motion_vectors(tracking_df)
     tracking_df = append_ball_start_position(tracking_df)
@@ -209,6 +223,7 @@ def standardize_tracking_dataframes(games_df, plays_df, tracking_df, pff_df=None
 
 def try_read_pff(filename):
     try:
-        return pd.read_csv(filename)
+        pff_df = pd.read_csv(filename)
+        return normalize_column_formatting(pff_df)
     except pd.errors.EmptyDataError:
         return None
