@@ -1,5 +1,7 @@
 import pandas as pd
 
+from standardize import normalize_column_formatting
+
 
 def is_football(row):
     return row['team'] == 'football'
@@ -13,6 +15,7 @@ def normalize_column_names(tracking_df):
     :param tracking_df: DataFrame with full tracking data.
     :return: DataFrame with standardized column names.
     """
+    tracking_df = normalize_column_formatting(tracking_df)
     return tracking_df.rename(columns={'frame.id': 'frameId'}, errors='ignore')
 
 
