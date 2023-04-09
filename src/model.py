@@ -1,6 +1,5 @@
 import logging
 import math
-import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 import statsmodels.formula.api as smf
@@ -54,8 +53,8 @@ def xgboost_model(x_df, y_df, validation_df):
     # make predictions for test data
     y_pred = model.predict(X_test)
     print('XgbMSE: %.6f' % mean_squared_error(y_test, y_pred))
-    validation_y_df = validation_df['space']
-    validation_x_df = validation_df.drop(columns=['space'])
+    validation_y_df = validation_df['ery']
+    validation_x_df = validation_df.drop(columns=['ery'])
     v_predictions = model.predict(validation_x_df)
     print('XgbValMSE: %.6f' % mean_squared_error(validation_y_df, v_predictions))
     # plot_xgboost(model)
@@ -64,43 +63,34 @@ def xgboost_model(x_df, y_df, validation_df):
 def stats_model(x_df, y_df, validation_df):
     X_train, X_test, y_train, y_test = train_test_split(x_df, y_df, test_size=0.2, random_state=47)
     X_train = X_train.copy()
-    X_train['space'] = y_train
-    description = 'space ~ %s' % ' +  '.join([c for c in X_train.columns if c != 'space'])
+    X_train['ery'] = y_train
+    description = 'ery ~ %s' % ' +  '.join([c for c in X_train.columns if c != 'ery'])
     # print(description)
     model = smf.ols(description, X_train).fit()
     y_pred = model.predict(X_test)
     print('OlsMSE: %.6f' % mean_squared_error(y_test, y_pred))
-    validation_y_df = validation_df['space']
-    validation_x_df = validation_df.drop(columns=['space'])
+    validation_y_df = validation_df['ery']
+    validation_x_df = validation_df.drop(columns=['ery'])
     v_pred = model.predict(validation_x_df)
     print('OlsValMSE: %.6f' % mean_squared_error(validation_y_df, v_pred))
     # print(model.summary())
     table = sm.stats.anova_lm(model, typ=2)
-    # print(table)
-    sig = list()
-    for row in table.iterrows():
-        if np.isnan(row[1]['F']):
-            continue
-        if row[1]['F'] > model.fvalue:
-            sig.append(str(row[0]))
-    if sig:
-        print('\tSignificant columns: [ %s ]' % ', '.join(sig))
-    else:
-        print('\t*** No significant columns')
+    sig_table = table[~table.F.isna() & (table.F > model.fvalue)]
+    print('== Significant columns')
+    print(sig_table)
 
 
 def make_keras_model(X_train):
     model = keras.Sequential()
     model.add(
-        layers.Dense(input_shape=(X_train.shape[1:]), use_bias=True, units=X_train.shape[1], activation='sigmoid')
+        layers.Dense(input_shape=(X_train.shape[1:]), use_bias=True, units=X_train.shape[1], activation='relu')
     )
-    model.add(layers.Dropout(0.3))
-    model.add(layers.Dense(units=192, activation='sigmoid'))
-    model.add(layers.Dropout(0.3))
-    model.add(layers.Dense(units=32, activation='sigmoid'))
-    model.add(layers.Dropout(0.3))
+    model.add(layers.Dense(units=256, activation='relu'))
+    model.add(layers.Dropout(0.2))
+    model.add(layers.Dense(units=64, activation='relu'))
+    model.add(layers.Dropout(0.2))
     model.add(layers.Dense(units=1))
-    optimizer = keras.optimizers.Adam(learning_rate=1e-3)
+    optimizer = keras.optimizers.Adam(learning_rate=1e-4)
     model.compile(optimizer=optimizer, loss='mse', metrics=['mae', 'mse'])
     model.build()
     print(model.summary())
@@ -110,23 +100,26 @@ def make_keras_model(X_train):
 def keras_model(x_df, y_df, validation_df):
     X_train, X_test, y_train, y_test = train_test_split(x_df, y_df, test_size=0.2, random_state=47)
     model = make_keras_model(X_train)
-    early_stopping = keras.callbacks.EarlyStopping(monitor='val_loss', patience=50, min_delta=1)
+    early_stopping = keras.callbacks.EarlyStopping(monitor='val_loss', patience=50, min_delta=0.1)
     model.fit(X_train, y_train, validation_data=(X_test, y_test), batch_size=64, epochs=200, shuffle=True, verbose=0,
               callbacks=[early_stopping])
     losses = model.evaluate(x=X_test, y=y_test)
     print('KerMSE: [%s]' % ', '.join(['%.6f' % loss for loss in losses]))
-    validation_y_df = validation_df['space']
-    validation_x_df = validation_df.drop(columns=['space'])
+    validation_y_df = validation_df['ery']
+    validation_x_df = validation_df.drop(columns=['ery'])
     v_pred = model.predict(validation_x_df)
     print('KerValMSE: %.6f' % mean_squared_error(validation_y_df, v_pred))
     model.save('data/2019/df/keras.%f.model' % time())
 
 
-def create_onehot_encoder(plays_df):
-    encoder = LabelBinarizer()
+def create_onehot_encoders(plays_df):
+    team_encoder = LabelBinarizer()
     teams = plays_df['possessionTeam'].to_numpy().reshape(-1, 1)
-    encoder.fit(teams)
-    return encoder
+    team_encoder.fit(teams)
+    down_encoder = LabelBinarizer()
+    downs = plays_df['down'].to_numpy().reshape(-1, 1)
+    down_encoder.fit(downs)
+    return team_encoder, down_encoder
 
 
 def include_possession_team_abbr(plays_df, encoder, df):
@@ -144,6 +137,17 @@ def include_possession_team_abbr(plays_df, encoder, df):
     return df
 
 
+def include_encoded_downs(encoder, df):
+    if 'gameId' not in df or 'playId' not in df:
+        return df
+    down_array = encoder.transform(df['down'])
+    columns = ['down_%s' % down for down in encoder.classes_]
+    down_df = pd.DataFrame(data=down_array, columns=columns)
+    df = pd.merge(df, down_df, left_index=True, right_index=True)
+    df.drop(columns=['down'], inplace=True)
+    return df
+
+
 def main(argv):
     tf.get_logger().setLevel(logging.WARNING)
     if len(argv) != 5:
@@ -151,14 +155,16 @@ def main(argv):
         return 1
     games_df = normalize_column_formatting(pd.read_csv(argv[1]))
     plays_df = load_plays_data(games_df, argv[2])
-    encoder = create_onehot_encoder(plays_df)
+    team_encoder, down_encoder = create_onehot_encoders(plays_df)
     x_df = pd.read_csv(argv[3])
-    x_df = include_possession_team_abbr(plays_df, encoder, x_df)
+    x_df = include_possession_team_abbr(plays_df, team_encoder, x_df)
+    x_df = include_encoded_downs(down_encoder, x_df)
     x_df['yardsToGoSqrt'] = x_df['yardsToGo'].apply(math.sqrt)
-    y_df = x_df['space']
-    x_df.drop(columns=['gameId', 'playId', 'space'], inplace=True)
+    y_df = x_df['ery']
+    x_df.drop(columns=['gameId', 'playId', 'ery'], inplace=True)
     validation_df = pd.read_csv(argv[4])
-    validation_df = include_possession_team_abbr(plays_df, encoder, validation_df)
+    validation_df = include_possession_team_abbr(plays_df, team_encoder, validation_df)
+    validation_df = include_encoded_downs(down_encoder, validation_df)
     validation_df['yardsToGoSqrt'] = validation_df['yardsToGo'].apply(math.sqrt)
     validation_df.drop(columns=['gameId', 'playId'], inplace=True)
     xgboost_model(x_df, y_df, validation_df)
