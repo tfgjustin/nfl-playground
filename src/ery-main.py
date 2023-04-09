@@ -7,6 +7,7 @@ import sys
 from common import setup_environment
 from sklearn.model_selection import train_test_split
 
+
 def create_transformation_matrix():
     t = np.zeros((10, 10))
     for idx in range(0, 5):

@@ -32,10 +32,12 @@ def select_plays(plays_df, tracking_df):
     ball_carrier_df = tracking_df[tracking_df.nflId == tracking_df.nflIdRusher].copy()
     ball_carrier_df['ballCarrierId'] = ball_carrier_df['nflIdRusher']
     ball_carrier_df['ballCarrierTeam'] = ball_carrier_df['team']
-    ball_carrier_df['handoffFrameId'] = 1
+    ball_carrier_df['targetFrameId'] = 1
     merged_df = pd.merge(run_end_df, ball_carrier_df, on=['gameId', 'playId'], how='inner')
+    merged_df['isOffense'] = merged_df['ballCarrierTeam'] == merged_df['team']
+    merged_df['isBallCarrier'] = merged_df['ballCarrierId'] == merged_df['nflId']
     return merged_df[
-        ['gameId', 'playId', 'ballCarrierId', 'ballCarrierTeam', 'handoffFrameId', 'runEndY', 'runDistance']
+        ['gameId', 'playId', 'isOffense', 'isBallCarrier', 'targetFrameId', 'runEndY', 'runDistance']
     ].reset_index()
 
 
@@ -77,11 +79,12 @@ def construct_defense_array(df):
 
 
 def create_distance_outputs(df):
-    # y = df['runEndY'].unique() - df[df.isBallCarrier]['normY'].unique()
+    y_array = np.zeros(80, dtype=np.float32)
+    if 'runDistance' not in df:
+        return y_array
     y = df['runDistance'].unique()
     y = round(max([-29, min([50, y[0]])]))
     y_idx = int(y + 29)
-    y_array = np.zeros(80, dtype=np.float32)
     y_array[y_idx] = 1
     return y_array
 
@@ -122,7 +125,7 @@ def construct_one_sample(play_id, df):
     return [y, X, season]
 
 
-def construct_samples_from_play(_, game_play_id, rows):
+def construct_samples_from_play(_, game_play_id, rows, create_mirror_samples=True):
     df = rows.sort_values(by=['nflId']).reset_index()
     regular_xy = construct_one_sample(game_play_id[1], df)
     if regular_xy is None:
@@ -133,6 +136,8 @@ def construct_samples_from_play(_, game_play_id, rows):
         print(df.head(23))
         return None
     output = [regular_xy]
+    if not create_mirror_samples:
+        return output
     mirror_df = construct_mirror_sample(df)
     mirror_xy = construct_one_sample(game_play_id[1] + 6000, mirror_df)
     if mirror_xy is not None:
@@ -140,19 +145,17 @@ def construct_samples_from_play(_, game_play_id, rows):
     return output
 
 
-def construct_training_df(run_play_info_df, tracking_df, samples_per_play=3):
+def construct_training_df(run_play_info_df, tracking_df, create_mirror_samples=True, samples_per_play=3):
     np.set_printoptions(edgeitems=30, linewidth=100000, formatter=dict(float=lambda x: '%.6g' % x))
     df = pd.merge(run_play_info_df, tracking_df, on=['gameId', 'playId'], how='left')
     # Get one frame on either side of the handoff (i.e., within 0.1s). This will roughly 3x the amount of data we have
     # without (hopefully) affecting the quality of the predictions too much.
-    df = df[abs(df.frameId - df.handoffFrameId) <= 1]
-    df['isOffense'] = df['ballCarrierTeam'] == df['team']
-    df['isBallCarrier'] = df['ballCarrierId'] == df['nflId']
+    df = df[abs(df.frameId - df.targetFrameId) <= 1]
     data = list()
     n = 0
     for game_play_id, group in df.groupby(['gameId', 'playId', 'frameId']):
         for _ in range(samples_per_play):
-            samples = construct_samples_from_play(n, game_play_id, group)
+            samples = construct_samples_from_play(n, game_play_id, group, create_mirror_samples=create_mirror_samples)
             if samples is None:
                 break
             data.extend(samples)
@@ -170,20 +173,21 @@ def split_x_y(data):
     return X, y_yard_distribution, season
 
 
-def create_training_inputs(unified_df, samples_per_play=3):
+def create_training_inputs(unified_df, create_mirror_samples=True, samples_per_play=3):
     games_df, plays_df, players_df, tracking_df = normalize_2020_df(unified_df)
     plays_df = normalize_plays_data(games_df, plays_df)
     tracking_df = standardize_tracking_dataframes(games_df, plays_df, tracking_df, players_df=players_df)
     run_play_info_df = select_plays(plays_df, tracking_df)
-    training_data = construct_training_df(run_play_info_df, tracking_df, samples_per_play=samples_per_play)
+    training_data = construct_training_df(run_play_info_df, tracking_df, create_mirror_samples=create_mirror_samples,
+                                          samples_per_play=samples_per_play)
     return split_x_y(training_data)
 
 
 class MyLearningRateSchedule(LearningRateSchedule):
-    def __init__(self, initial_rate=1e-3, minimum_rate=5e-4, num_steps=50):
-        self._initial_rate = initial_rate
-        self._minimum_rate = minimum_rate
-        self._num_steps = num_steps
+    def __init__(self, _initial_rate=1e-3, _minimum_rate=5e-4, _num_steps=50):
+        self._initial_rate = _initial_rate
+        self._minimum_rate = _minimum_rate
+        self._num_steps = _num_steps
 
     def get_config(self):
         config = {
