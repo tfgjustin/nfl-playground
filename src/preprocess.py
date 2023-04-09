@@ -1,13 +1,15 @@
 #!/usr/bin/python
 
+import erylib
 import pandas as pd
 import numpy as np
 import sys
 
+from common import setup_environment
 from pass_accumulator import PassAccumulator
 from plays import load_plays_data
-from space import analyze_frames
 from standardize import normalize_column_formatting, standardize_tracking_dataframes, try_read_pff
+from tensorflow.keras.models import load_model
 from time import localtime, strftime, time
 from tracking import load_all_tracking_data
 
@@ -126,55 +128,49 @@ def annotate_game_plays_with_tracking(game_plays_df, pff_df, players_df, trackin
     merged_df = pd.merge(merged_df, players_df, on=['nflId'], how='left')
     if pff_df is not None:
         merged_df = pd.merge(merged_df, pff_df, on=['gameId', 'playId', 'nflId'], how='left')
+    merged_df['isBallCarrier'] = merged_df.positionAbbr == 'QB'
+    merged_df[merged_df.isBallCarrier, 's'] = 0
+    merged_df['isOffense'] = merged_df.possessionTeam == merged_df.team
     return merged_df
 
 
-def summarize_frame(_, influence):
-    min_i = np.min(influence)
-    max_i = np.max(influence)
-    sum_i = float(np.sum(influence, axis=None))
-    # print(fq_frame_id, 'Total: %6.2f [%5.3f - %5.3f]' % (sum_i, min_i, max_i))
-    return [sum_i, min_i, max_i]
+def analyze_all_plays(ery_model, merged_df):
+    keys = list()
+    to_predict = list()
+    for name, group in merged_df.groupby(by=['gameId', 'playId', 'frameId']):
+        sample = erylib.construct_samples_from_play(None, name, group, create_mirror_samples=False)
+        if sample is not None:
+            to_predict.extend(sample)
+            keys.extend([name[0], name[1]] * len(sample))
+    X, _, _ = erylib.split_x_y(to_predict)
+    y_pred = ery_model.predict(X)
+    yards = np.arange(-29, 51)
+    summary = np.array(keys).reshape(-1, 2)
+    return np.hstack([summary, np.sum(yards * y_pred, axis=1).reshape(-1, 1)])
 
 
-def analyze_all_plays(merged_df):
-    groups = merged_df.groupby(by=['gameId', 'playId', 'frameId'])
-    x, y = np.mgrid[0:53.3:0.1, 0:120:0.1]
-    locations = np.dstack((x, y))
-    fq_frame_id_to_influence = analyze_frames(merged_df, groups.groups, locations)
-    print('Produced analysis for %d frames' % len(fq_frame_id_to_influence))
-    space_array = list()
-    for fq_frame_id, influence in sorted(fq_frame_id_to_influence.items()):
-        game_id = fq_frame_id[0]
-        play_id = fq_frame_id[1]
-        s = summarize_frame(fq_frame_id, influence)
-        if not np.isnan(s[0]):
-            space_array.append([game_id, play_id, s[0]])
-    return space_array
-
-
-def merge_analysis_frames(space_df, pass_data_df, game_plays_df):
+def merge_analysis_frames(ery_df, pass_data_df, game_plays_df):
     slim_columns = ['gameId', 'playId', 'quarter', 'secondsLeftInHalf', 'offenseScoreMargin', 'down', 'yardsToGo',
                     'absoluteYardlineNumber']
     slim_columns += [position_column_name('offense', p) for p in _POSITIONS_OFFENSE]
     slim_columns += [position_column_name('defense', p) for p in _POSITIONS_DEFENSE]
     slim_merged_df = game_plays_df[slim_columns].drop_duplicates()
-    analysis_df = pd.merge(space_df, slim_merged_df, on=['gameId', 'playId'], how='inner')
+    analysis_df = pd.merge(ery_df, slim_merged_df, on=['gameId', 'playId'], how='inner')
     return pd.merge(analysis_df, pass_data_df, on=['gameId', 'playId'], how='inner')
 
 
-def analyze_all_tracking_data(tracking_filenames, games_df, plays_df, game_plays_df, pff_df, players_df):
-    space_array = list()
+def analyze_all_tracking_data(tracking_filenames, ery_model, games_df, plays_df, game_plays_df, pff_df, players_df):
+    ery_array = list()
     for tracking_filename in sorted(tracking_filenames):
         print(tracking_filename)
         tracking_df = load_all_tracking_data([tracking_filename])
         tracking_df = standardize_tracking_dataframes(games_df, plays_df, tracking_df, pff_df=pff_df,
                                                       players_df=players_df)
         merged_df = annotate_game_plays_with_tracking(game_plays_df, pff_df, players_df, tracking_df)
-        space_array.extend(analyze_all_plays(merged_df))
-    space_df = pd.DataFrame(data=space_array, columns=['gameId', 'playId', 'space'])
-    space_df.astype({'gameId': int, 'playId': int})
-    return space_df
+        ery_array.extend(analyze_all_plays(ery_model, merged_df))
+    ery_df = pd.DataFrame(data=ery_array, columns=['gameId', 'playId', 'ery'])
+    ery_df.astype({'gameId': int, 'playId': int})
+    return ery_df
 
 
 def filetime_to_path(filetime):
@@ -189,18 +185,22 @@ def create_model_input(analysis_df, filetime):
 
 
 def main(argv):
-    if len(argv) < 6:
-        print('Usage: %s <games_csv> <plays_csv> <players_csv> <pff_csv> <tracking_csv>' %
+    setup_environment()
+    if len(argv) < 7:
+        print('Usage: %s <model_dir> <games_csv> <plays_csv> <players_csv> <pff_csv> <tracking_csv>' %
               argv[0])
         return 1
-    games_df = normalize_column_formatting(pd.read_csv(argv[1]))
-    plays_df = load_plays_data(games_df, argv[2])
-    players_df = normalize_column_formatting(pd.read_csv(argv[3]))
-    pff_df = try_read_pff(argv[4])
+    ery_model = load_model(argv[1], compile=False, custom_objects={
+        'MyLearningRateSchedule': erylib.MyLearningRateSchedule, 'CrpsLoss': erylib.CrpsLoss
+    })
+    games_df = normalize_column_formatting(pd.read_csv(argv[2]))
+    plays_df = load_plays_data(games_df, argv[3])
+    players_df = normalize_column_formatting(pd.read_csv(argv[4]))
+    pff_df = try_read_pff(argv[5])
     pass_data_df = get_pass_accumulator_df(games_df, plays_df)
     game_plays_df = select_and_decompose_plays(games_df, plays_df)
-    space_df = analyze_all_tracking_data(argv[5:], games_df, plays_df, game_plays_df, pff_df, players_df)
-    analysis_df = merge_analysis_frames(space_df, pass_data_df, game_plays_df)
+    ery_df = analyze_all_tracking_data(argv[6:], ery_model, games_df, plays_df, game_plays_df, pff_df, players_df)
+    analysis_df = merge_analysis_frames(ery_df, pass_data_df, game_plays_df)
     create_model_input(analysis_df, time())
     return 0
 
