@@ -9,7 +9,7 @@ from common import setup_environment
 from pass_accumulator import PassAccumulator
 from plays import load_plays_data
 from standardize import normalize_column_formatting, standardize_tracking_dataframes, try_read_pff
-from tensorflow.keras.models import load_model
+from keras.models import load_model
 from time import localtime, strftime, time
 from tracking import load_all_tracking_data
 

@@ -13,7 +13,7 @@ from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelBinarizer
 from standardize import normalize_column_formatting
-from tensorflow.keras import layers
+from keras import layers
 from tensorflow import keras
 from time import time
 

@@ -1,5 +1,4 @@
 import pandas as pd
-import sys
 
 
 from standardize import normalize_column_formatting
@@ -60,7 +59,7 @@ def insert_football_frames(tracking_df):
     ball_carrier_df['displayName'] = 'football'
     ball_carrier_df['nflId'] = None
     ball_carrier_df['jerseyNumber'] = None
-    return tracking_df.append(ball_carrier_df, ignore_index=True).reset_index()
+    return tracking_df._append(ball_carrier_df, ignore_index=True).reset_index()
 
 
 def extract_tracking(unified_df):

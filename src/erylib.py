@@ -2,20 +2,20 @@ import abc
 import numpy as np
 import pandas as pd
 import tensorflow as tf
-import tensorflow.keras.backend as K
+import keras.backend as K
 
 from normalize_2020 import normalize_2020_df
 from plays import normalize_plays_data
 from sklearn.model_selection import KFold
 
 from standardize import standardize_tracking_dataframes
-from tensorflow.keras import Input, Model
-from tensorflow.keras.callbacks import Callback, EarlyStopping
-from tensorflow.keras.layers import Add, AvgPool1D, AvgPool2D, BatchNormalization, Conv1D, Conv2D, Dense, \
+from keras import Input, Model
+from keras.callbacks import Callback, EarlyStopping
+from keras.layers import Add, AvgPool1D, AvgPool2D, BatchNormalization, Conv1D, Conv2D, Dense, \
     Dropout, Lambda, LayerNormalization, MaxPooling1D, MaxPooling2D
-from tensorflow.keras.losses import Loss
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.optimizers.schedules import LearningRateSchedule
+from keras.losses import Loss
+from keras.optimizers import Adam
+from keras.optimizers.schedules import LearningRateSchedule
 from time import time
 
 
@@ -161,7 +161,7 @@ def construct_training_df(run_play_info_df, tracking_df, create_mirror_samples=T
             data.extend(samples)
         n += 1
         if n % 1000 == 0:
-            print('%5d %s' % (n, game_play_id[1]))
+            print('%5d %5d %s' % (n, len(data), game_play_id[1]))
     print('Number of frames found:', len(data))
     return data
 

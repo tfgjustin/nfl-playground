@@ -4,18 +4,18 @@ import numpy as np
 import pandas as pd
 import sys
 import tensorflow as tf
-import tensorflow.keras.backend as K
+import keras.backend as K
 
 from plays import load_plays_data
 from sklearn.model_selection import train_test_split
 from standardize import standardize_tracking_dataframes, try_read_pff
-from tensorflow.keras import Input, Model
-from tensorflow.keras.callbacks import EarlyStopping
-from tensorflow.keras.layers import Activation, Add, AvgPool1D, AvgPool2D, BatchNormalization, Conv1D, Conv2D, Dense, \
+from keras import Input, Model
+from keras.callbacks import EarlyStopping
+from keras.layers import Activation, Add, AvgPool1D, AvgPool2D, BatchNormalization, Conv1D, Conv2D, Dense, \
     Dropout, Lambda, LayerNormalization, MaxPooling1D, MaxPooling2D
-from tensorflow.keras.losses import Loss
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.optimizers.schedules import LearningRateSchedule
+from keras.losses import Loss
+from keras.optimizers import Adam
+from keras.optimizers.schedules import LearningRateSchedule
 from time import time
 from tracking import load_all_tracking_data
 
