@@ -15,5 +15,6 @@ def limit_gpu_memory_growth():
 def setup_environment():
     limit_gpu_memory_growth()
     pd.set_option("display.max_columns", 100)
+    pd.set_option("display.width", 200)
     pd.set_option("display.precision", 6)
-    np.set_printoptions(edgeitems=30, linewidth=100000, formatter=dict(float=lambda x: '%.6g' % x))
+    np.set_printoptions(edgeitems=30, linewidth=100000, formatter=dict(float=lambda x: '%.4g' % x))
