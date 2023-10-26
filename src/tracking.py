@@ -16,7 +16,7 @@ def normalize_column_names(tracking_df):
     :return: DataFrame with standardized column names.
     """
     tracking_df = normalize_column_formatting(tracking_df)
-    return tracking_df.rename(columns={'frame.id': 'frameId'}, errors='ignore')
+    return tracking_df.rename(columns={'frame.id': 'frameId', 'club': 'team'}, errors='ignore')
 
 
 def maybe_rename_football(tracking_df):

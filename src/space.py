@@ -12,7 +12,7 @@ _MAX_SPEED = 9
 
 def create_uniform_mask(locations):
     mask_shape = locations.shape[:2]
-    uniform_mask = np.ndarray(mask_shape, dtype=np.float)
+    uniform_mask = np.ndarray(mask_shape, dtype=np.float32)
     mask_value = 1. / uniform_mask.size
     uniform_mask.fill(mask_value)
     return uniform_mask

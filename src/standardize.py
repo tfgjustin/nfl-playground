@@ -22,8 +22,14 @@ def join_position_data_pff(pff_df, tracking_df):
 
 
 def join_position_data_players(players_df, tracking_df):
-    role_df = players_df[['nflId', 'positionAbbr']]
-    role_df = role_df.rename(columns={'positionAbbr': 'playerPosition'}, errors='ignore')
+    role_df = None
+    if 'positionAbbr' in players_df.columns:
+        role_df = players_df[['nflId', 'positionAbbr']]
+        role_df = role_df.rename(columns={'positionAbbr': 'playerPosition'}, errors='ignore')
+    elif 'position' in players_df.columns:
+        role_df = players_df[['nflId', 'position']]
+        role_df = role_df.rename(columns={'position': 'playerPosition'}, errors='ignore')
+    assert role_df is not None
     return pd.merge(tracking_df, role_df, on=['nflId'], how='left')
 
 
